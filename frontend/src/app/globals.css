@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-glass: 255 255 255 / 0.12;
+}
+
+body {
+  @apply bg-sage-50 text-slate-900 transition-colors duration-300;
+}
+
+.dark body {
+  @apply bg-slate-950 text-slate-100;
+}
+
+.glass-card {
+  @apply rounded-2xl bg-white/10 dark:bg-slate-900/40 border border-white/20 dark:border-slate-700/60 shadow-glass backdrop-blur-xl;
+}
+
+.sage-gradient {
+  @apply bg-sage-gradient;
+}
+
