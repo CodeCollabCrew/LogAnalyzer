@@ -34,7 +34,28 @@ export async function runAIDebug(
     .join("\n")
     .slice(0, 8000);
 
-  if (!ENV.GROK_API_KEY) {
+  const provider = ENV.AI_PROVIDER;
+  const isGroq = provider.toLowerCase() === "groq";
+
+  // Provider configuration guardrails (so `/ai/debug` returns actionable errors).
+  if (isGroq && !ENV.GROQ_API_KEY) {
+    return {
+      rootCause:
+        "Groq API key is not configured. Set GROQ_API_KEY in backend environment.",
+      affectedServices: [],
+      possibleFixes: [
+        "Configure GROQ_API_KEY and GROQ_API_URL in the backend .env file.",
+        "Restart the backend server after setting environment variables."
+      ],
+      preventionTips: [
+        "Use environment variable management for local and production.",
+        "Add health checks for AI dependency."
+      ],
+      rawAnswer: ""
+    };
+  }
+
+  if (!isGroq && !ENV.GROK_API_KEY) {
     return {
       rootCause:
         "Grok API key is not configured. Set GROK_API_KEY in backend environment.",
@@ -54,7 +75,8 @@ export async function runAIDebug(
   const systemPrompt =
     "You are LogLens, an expert production incident responder.\n" +
     "Analyze the following system logs. Identify the main failures, root causes, affected services, and suggest concrete fixes and prevention tips.\n" +
-    "Respond in JSON with keys: rootCause (string), affectedServices (string[]), possibleFixes (string[]), preventionTips (string[]).";
+    "Respond with ONLY valid JSON (no markdown/code fences).\n" +
+    "Use these exact keys and types: rootCause (string), affectedServices (string[]), possibleFixes (string[]), preventionTips (string[]).";
 
   const userPrompt = `Question from developer: ${question}\n\nLogs:\n${logSnippet}`;
 
@@ -62,9 +84,9 @@ export async function runAIDebug(
 
   try {
     const response = await axios.post(
-      ENV.GROK_API_URL,
+      isGroq ? ENV.GROQ_API_URL : ENV.GROK_API_URL,
       {
-        model: "grok-beta",
+        model: isGroq ? ENV.GROQ_MODEL : "grok-3-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
@@ -72,12 +94,13 @@ export async function runAIDebug(
       },
       {
         headers: {
-          Authorization: `Bearer ${ENV.GROK_API_KEY}`,
+          Authorization: isGroq
+            ? `Bearer ${ENV.GROQ_API_KEY}`
+            : `Bearer ${ENV.GROK_API_KEY}`,
           "Content-Type": "application/json"
         },
         timeout: 30000,
-        // Grok sometimes returns useful error bodies on non-2xx;
-        // we still want to surface those to the caller.
+        // Surface error bodies from the provider (4xx/5xx) so the UI can show details.
         validateStatus: () => true
       }
     );
@@ -90,12 +113,12 @@ export async function runAIDebug(
           ? response.data
           : JSON.stringify(response.data);
       content = JSON.stringify({
-        rootCause: `Grok API returned HTTP ${response.status}.`,
+        rootCause: `${isGroq ? "Groq" : "Grok"} API returned HTTP ${response.status}.`,
         affectedServices: [],
         possibleFixes: [
-          "Verify your GROK_API_KEY and that it has access to the requested model.",
-          "Confirm the GROK_API_URL endpoint is correct and reachable from the backend.",
-          "Check Grok/xAI dashboard for more details about this request failure."
+          `Verify your ${isGroq ? "GROQ_API_KEY" : "GROK_API_KEY"} has access to the requested model.`,
+          `Confirm the ${isGroq ? "GROQ_API_URL" : "GROK_API_URL"} endpoint is correct and reachable from the backend.`,
+          `Check the ${isGroq ? "Groq" : "Grok/xAI"} dashboard for more details about this request failure.`
         ],
         preventionTips: [
           "Add monitoring around external AI calls and fallback paths.",
@@ -106,39 +129,71 @@ export async function runAIDebug(
     }
   } catch (error: unknown) {
     // eslint-disable-next-line no-console
-    console.error("Grok API request failed", error);
+    console.error("AI API request failed", error);
     content = JSON.stringify({
       rootCause:
-        "Failed to reach Grok API from the backend. This is most likely a networking, DNS, or credential issue.",
+        `Failed to reach ${isGroq ? "Groq" : "Grok"} API from the backend. This is most likely a networking, DNS, or credential issue.`,
       affectedServices: [],
       possibleFixes: [
-        "Ensure the machine running the backend can reach the GROK_API_URL over the network.",
-        "Double-check GROK_API_KEY for typos or expired tokens.",
+        `Ensure the machine running the backend can reach the ${isGroq ? "GROQ_API_URL" : "GROK_API_URL"} over the network.`,
+        `Double-check ${isGroq ? "GROQ_API_KEY" : "GROK_API_KEY"} for typos or expired tokens.`,
         "Temporarily disable AI calls in this environment if external egress is blocked."
       ],
       preventionTips: [
         "Use separate API keys and environments for local vs production.",
-        "Add a health check endpoint that validates connectivity to Grok."
+        `Add a health check endpoint that validates connectivity to ${isGroq ? "Groq" : "Grok"}.`
       ],
       rawError:
-        error instanceof Error ? error.message : "Unknown Grok client error"
+        error instanceof Error ? error.message : "Unknown AI client error"
     });
   }
 
-  let parsed: Partial<AIDebugResponse>;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    parsed = {};
+  // Groq/xAI may wrap JSON in markdown code fences. Try a few strategies to extract JSON.
+  const tryParseJson = (raw: string): Partial<AIDebugResponse> | null => {
+    try {
+      return JSON.parse(raw) as Partial<AIDebugResponse>;
+    } catch {
+      return null;
+    }
+  };
+
+  let parsed: Partial<AIDebugResponse> | null = tryParseJson(content);
+  if (!parsed) {
+    const trimmed = content.trim();
+
+    // Strip ```json ... ``` fences if present.
+    const withoutFences = trimmed
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+
+    parsed = tryParseJson(withoutFences);
+
+    // As a last resort, extract the first {...} block.
+    if (!parsed) {
+      const match = withoutFences.match(/\{[\s\S]*\}/);
+      if (match) parsed = tryParseJson(match[0]);
+    }
   }
+
+  const normalizeString = (v: unknown): string => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) return v.filter((x) => typeof x === "string").join(", ");
+    return "";
+  };
+
+  const normalizeStringArray = (v: unknown): string[] => {
+    if (Array.isArray(v)) return v.filter((x) => typeof x === "string");
+    return [];
+  };
 
   return {
     rootCause:
-      parsed.rootCause ||
+      (parsed ? normalizeString((parsed as any).rootCause) : "") ||
       "Unable to extract a clear root cause from the AI response.",
-    affectedServices: parsed.affectedServices || [],
-    possibleFixes: parsed.possibleFixes || [],
-    preventionTips: parsed.preventionTips || [],
+    affectedServices: normalizeStringArray((parsed as any)?.affectedServices),
+    possibleFixes: normalizeStringArray((parsed as any)?.possibleFixes),
+    preventionTips: normalizeStringArray((parsed as any)?.preventionTips),
     rawAnswer: content
   };
 }
