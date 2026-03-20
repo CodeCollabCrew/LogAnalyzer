@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardTitle, CardSubtitle } from "../../components/ui/card";
 import { Textarea } from "../../components/ui/textarea";
 import { Input } from "../../components/ui/input";
-import { uploadLogsApi, uploadLogFilesApi } from "../../lib/api";
+import { uploadLogsApi, uploadLogFilesApi, clearLogsApi } from "../../lib/api";
 
 export default function IngestPage() {
   const [text, setText] = useState("");
@@ -34,6 +34,21 @@ export default function IngestPage() {
       );
     } catch (e: any) {
       setError(e.message || "Failed to analyze logs.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = async () => {
+    try {
+      if (!confirm("Are you sure you want to clear all logs?")) return;
+      setLoading(true);
+      setError(null);
+      setResult(null);
+      const res = await clearLogsApi();
+      setResult(res.message);
+    } catch (e: any) {
+      setError(e.message || "Failed to clear logs.");
     } finally {
       setLoading(false);
     }
@@ -169,6 +184,14 @@ export default function IngestPage() {
                 disabled={loading || (!text && !url)}
               >
                 {loading ? "Analyzing..." : "Analyze & Ingest"}
+              </Button>
+              <Button
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900/50 dark:hover:bg-red-900/20"
+                onClick={handleClear}
+                disabled={loading}
+              >
+                Clear All Logs
               </Button>
               {result && (
                 <p className="text-xs text-emerald-600 dark:text-emerald-400">

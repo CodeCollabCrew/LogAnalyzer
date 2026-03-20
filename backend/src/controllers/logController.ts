@@ -4,7 +4,8 @@ import {
   ingestLogs,
   getLogs,
   getLogStats,
-  getServiceHealth
+  getServiceHealth,
+  clearAllLogs
 } from "../services/logService";
 
 export async function uploadLogs(req: Request, res: Response) {
@@ -83,6 +84,17 @@ export async function analyzeLogsSummary(req: Request, res: Response) {
     // eslint-disable-next-line no-console
     console.error(err);
     return res.status(500).json({ error: "Failed to analyze logs." });
+  }
+}
+
+export async function clearLogs(req: Request, res: Response) {
+  try {
+    await clearAllLogs();
+    return res.json({ success: true, message: "All logs cleared." });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(err);
+    return res.status(500).json({ error: "Failed to clear logs." });
   }
 }
 

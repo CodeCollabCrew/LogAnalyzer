@@ -60,6 +60,13 @@ export async function fetchLogsApi(params: {
   return handleResponse(res);
 }
 
+export async function clearLogsApi(): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/logs`, {
+    method: "DELETE"
+  });
+  return handleResponse(res);
+}
+
 export async function fetchPatternsApi(): Promise<any> {
   const res = await fetch(`${API_BASE_URL}/patterns`);
   return handleResponse(res);

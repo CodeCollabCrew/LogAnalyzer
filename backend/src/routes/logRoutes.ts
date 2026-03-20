@@ -3,7 +3,8 @@ import multer from "multer";
 import {
   uploadLogs,
   listLogs,
-  analyzeLogsSummary
+  analyzeLogsSummary,
+  clearLogs
 } from "../controllers/logController";
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -18,4 +19,5 @@ logRouter.post(
 
 logRouter.post("/analyze", analyzeLogsSummary);
 logRouter.get("/", listLogs);
+logRouter.delete("/", clearLogs);
 

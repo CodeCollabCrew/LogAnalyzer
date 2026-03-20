@@ -22,6 +22,11 @@ async function bootstrap() {
   app.use(express.json({ limit: "10mb" }));
   app.use(morgan("dev"));
 
+  app.get("/", (_req, res) => {
+    res.send("LogLens API is running!");
+  });
+
+  // Trigger restart for CORS (port 3000)
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });

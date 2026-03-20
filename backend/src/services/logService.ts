@@ -142,3 +142,8 @@ export async function getServiceHealth(): Promise<
   return Array.from(map.values());
 }
 
+export async function clearAllLogs(): Promise<void> {
+  await LogModel.deleteMany({});
+  await PatternModel.deleteMany({});
+}
+
