@@ -11,20 +11,49 @@ export interface ParsedLog {
 const LOG_REGEX =
   /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[([^\]]+)] (\w+)\s+(.*)$/;
 
+// support standard quotes and smart quotes that get added from Rich Text editors
+const NGINX_REGEX = /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+["“”'‘’](.*?)["“”'‘’]\s+(\d{3})\s+(\d+|-)$/;
+
 export function parseLogLine(line: string): ParsedLog | null {
-  const match = line.match(LOG_REGEX);
-  if (!match) return null;
+  const trimmedLine = line.trim();
+  const match = trimmedLine.match(LOG_REGEX);
+  if (match) {
+    const [, ts, service, levelRaw, message] = match;
+    const level = normalizeLevel(levelRaw);
 
-  const [, ts, service, levelRaw, message] = match;
-  const level = normalizeLevel(levelRaw);
+    return {
+      timestamp: new Date(ts),
+      service,
+      level,
+      message,
+      rawLine: trimmedLine
+    };
+  }
 
-  return {
-    timestamp: new Date(ts),
-    service,
-    level,
-    message,
-    rawLine: line
-  };
+  const nginxMatch = trimmedLine.match(NGINX_REGEX);
+  if (nginxMatch) {
+    const [, ip, tsRaw, request, statusCode, bytes] = nginxMatch;
+    // tsRaw example: 09/Apr/2026:10:15:32 +0530 -> replace first ':' with ' '
+    const ts = tsRaw.replace(':', ' ');
+    const parsedDate = new Date(ts);
+    
+    const code = parseInt(statusCode, 10);
+    let level: LogLevel = "INFO";
+    if (code >= 500) level = "CRITICAL";
+    else if (code >= 400) level = "ERROR";
+
+    return {
+      timestamp: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
+      service: "nginx",
+      level,
+      message: `${request} ${statusCode} ${bytes}`,
+      rawLine: trimmedLine
+    };
+  }
+
+  // Debug log to terminal if it still fails so we can see exactly what text the frontend sent
+  console.log("🚨 [PARSE_FAILURE]:", JSON.stringify(trimmedLine));
+  return null;
 }
 
 export function normalizeLevel(level: string): LogLevel {
